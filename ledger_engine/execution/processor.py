@@ -33,7 +33,7 @@ class TransactionProcessor:
 
         # restore ledger state on startup
 
-        snapshot_index = self.replay_engine.restore_from_snapshot(self.ledger)
+        snapshot_index = self.replay_engine.restore_from_snapshot()
         transactions = self.journal.load_from(snapshot_index)
 
         for tx in transactions:

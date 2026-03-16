@@ -4,7 +4,7 @@ from ledger_engine.models.transaction import Transaction
 class Ledger:
 
     def __init__(self):
-        self.transactions: list[Transaction] = []
+
         self.balances: dict[str, int] = {}
         self.nonces: dict[str, int] = {}
         self.processed_ids: set[str] = set()
@@ -40,7 +40,7 @@ class Ledger:
             self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
 
         self.nonces[tx.sender] = tx.nonce
-        self.transactions.append(tx)
+
         self.processed_ids.add(tx.tx_id)
 
         self.process_buffer(tx.sender)
@@ -59,3 +59,6 @@ class Ledger:
 
         if not sender_buffer:
             self.future_transactions.pop(sender, None)
+
+    def get_balances(self):
+        return dict(self.balances)
