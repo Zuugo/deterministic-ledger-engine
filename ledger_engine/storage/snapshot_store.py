@@ -1,0 +1,36 @@
+import copy
+import json
+from pathlib import Path
+
+from ledger_engine.core.ledger import Ledger
+
+
+class SnapshotStore:
+
+    def __init__(self, directory: str = "snapshot"):
+        self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True)
+
+    def save_snapshot(self, ledger: Ledger):
+        snapshot = {
+            "tx_index": len(ledger.transactions),
+            "balances": copy.deepcopy(ledger.balances),
+            "nonces": copy.deepcopy(ledger.nonces),
+            "processed_ids": list(ledger.processed_ids),
+        }
+
+        filename = self.directory / f"snapshot_{snapshot['tx_index']}.json"
+
+        with open(filename, "w") as f:
+            json.dump(snapshot, f, indent=2)
+
+    def load_latest_snapshot(self):
+        snapshots = list(self.directory.glob("snapshot_*.json"))
+
+        if not snapshots:
+            return None
+
+        latest = max(snapshots, key=lambda p: int(p.stem.split("_")[1]))
+
+        with open(latest, "r") as f:
+            return json.load(f)
