@@ -8,23 +8,29 @@ from ledger_engine.storage.snapshot_store import SnapshotStore
 from ledger_engine.storage.transaction_journal import TransactionJournal
 from ledger_engine.validation.validator import TransactionValidator
 
-ledger = Ledger()
 
-journal = TransactionJournal("data/journal.log")
-snapshot_store = SnapshotStore("data/snapshot.json")
+def create_processor():
+    ledger = Ledger()
 
-replay_engine = ReplayEngine(ledger, snapshot_store)
+    journal = TransactionJournal("data/journal.log")
+    snapshot_store = SnapshotStore("data/snapshot.json")
 
-validator = TransactionValidator()
+    replay_engine = ReplayEngine(ledger, snapshot_store)
 
-processor = TransactionProcessor(
-    ledger=ledger,
-    journal=journal,
-    snapshot_store=snapshot_store,
-    replay_engine=replay_engine,
-    validate=validator,
-    snapshot_interval=5,
-)
+    validator = TransactionValidator()
+
+    processor = TransactionProcessor(
+        ledger=ledger,
+        journal=journal,
+        snapshot_store=snapshot_store,
+        replay_engine=replay_engine,
+        validate=validator,
+        snapshot_interval=5,
+    )
+
+    processor.start()
+
+    return processor, ledger
 
 
 def tx(tx_id: str, sender: str, receiver: str, amount: int, nonce: int):
@@ -38,7 +44,7 @@ def tx(tx_id: str, sender: str, receiver: str, amount: int, nonce: int):
     )
 
 
-def submit(tx):
+def submit(processor, tx):
     print(f"\nProcessing {tx.sender} -> {tx.receiver} | {tx.amount} | {tx.nonce}")
     success = processor.process(tx)
     print("SUCCESS" if success else "FAILED")
@@ -53,17 +59,32 @@ def print_balances(ledger):
 
 
 if __name__ == "__main__":
-    processor.start()
+    print("\n===SYSTEM START===")
+
+    processor, ledger = create_processor()
 
     # Mint
-    submit(tx("1", "SYSTEM", "Alice", 100, 1))
-    submit(tx("2", "SYSTEM", "Bob", 50, 2))
+    submit(processor, tx("1", "SYSTEM", "Alice", 100, 1))
+    submit(processor, tx("2", "SYSTEM", "Bob", 50, 2))
 
     # Normal transaction
-    submit(tx("3", "Alice", "Bob", 30, 1))
+    submit(processor, tx("3", "Alice", "Bob", 20, 1))
 
     # Future transaction
-    submit(tx("4", "Alice", "Bob", 10, 3))
-    submit(tx("5", "Alice", "Bob", 20, 2))
+    submit(processor, tx("4", "Alice", "Bob", 10, 3))
+    submit(processor, tx("5", "Alice", "Bob", 20, 2))
+
+    print_balances(ledger)
+
+    print("\n***SYSTEM CRASH***")
+
+    # simulate crash
+
+    processor = None
+    ledger = None
+
+    print("\n===SYSTEM RESTART===")
+
+    processor, ledger = create_processor()
 
     print_balances(ledger)

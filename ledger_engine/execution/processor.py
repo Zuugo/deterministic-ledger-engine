@@ -27,6 +27,7 @@ class TransactionProcessor:
         self.snapshot_interval = snapshot_interval
 
         self.lock = threading.Lock()
+        self.tx_count = 0
         self.tx_since_snapshot = 0
 
     def start(self):
@@ -54,10 +55,11 @@ class TransactionProcessor:
                 return False
 
             self.journal.append(tx)
+            self.tx_count += 1
             self.tx_since_snapshot += 1
 
             if self.tx_since_snapshot >= self.snapshot_interval:
-                self.snapshot_store.save_snapshot(self.ledger)
+                self.snapshot_store.save_snapshot(self.ledger, self.tx_count)
                 self.tx_since_snapshot = 0
 
             return True
