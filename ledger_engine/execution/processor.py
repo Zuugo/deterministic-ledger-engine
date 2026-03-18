@@ -49,6 +49,9 @@ class TransactionProcessor:
 
         with self.lock:
 
+            if tx.tx_id in self.ledger.processed_ids:
+                return True
+
             success = self.ledger.apply_transaction(tx)
 
             if not success:

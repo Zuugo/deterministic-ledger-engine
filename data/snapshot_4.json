@@ -1,0 +1,16 @@
+{
+  "tx_index": 4,
+  "balances": {
+    "Alice": 40
+  },
+  "nonces": {
+    "SYSTEM": 4
+  },
+  "processed_ids": [
+    "2",
+    "1",
+    "3",
+    "4"
+  ],
+  "future_transactions": {}
+}
