@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ledger-engine"
+version = "0.1.0"
+description = "Deterministic ledger engine with journaling and snapshots"
+authors = [
+    { name = "Your Name" }
+]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
