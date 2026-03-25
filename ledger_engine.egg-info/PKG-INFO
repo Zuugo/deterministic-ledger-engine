@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: ledger-engine
+Version: 0.1.0
+Summary: Deterministic ledger engine with journaling and snapshots
+Author: Your Name
