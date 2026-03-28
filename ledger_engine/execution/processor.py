@@ -41,21 +41,21 @@ class TransactionProcessor:
             if not self.ledger.apply_transaction(tx):
                 raise RuntimeError("Ledger replay failed - journal corrupted")
 
-    def process(self, tx: Transaction) -> bool:
+    def process(self, tx: Transaction):
         if not self.validate.validate(tx):
-            return False
+            return False, "Invalid Transaction"
 
         # process a new transaction
 
         with self.lock:
 
             if tx.tx_id in self.ledger.processed_ids:
-                return True
+                return True, None
 
             success = self.ledger.apply_transaction(tx)
 
             if not success:
-                return False
+                return False, "Ledger rejected transaction"
 
             self.journal.append(tx)
             self.tx_count += 1
@@ -65,4 +65,4 @@ class TransactionProcessor:
                 self.snapshot_store.save_snapshot(self.ledger, self.tx_count)
                 self.tx_since_snapshot = 0
 
-            return True
+            return True, None
