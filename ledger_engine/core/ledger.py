@@ -1,3 +1,8 @@
+from ledger_engine.exceptions.exceptions import (
+    DuplicateTransactionError,
+    InsufficientBalanceError,
+    InvalidNonceError,
+)
 from ledger_engine.models.transaction import Transaction
 
 
@@ -12,16 +17,16 @@ class Ledger:
 
     def apply_transaction(self, tx: Transaction) -> bool:
         if tx.tx_id in self.processed_ids:
-            return False
+            raise DuplicateTransactionError()
 
         expected = self.nonces.get(tx.sender, 0) + 1
 
         if tx.nonce < expected:
-            return False
+            raise InvalidNonceError("Nonce too low")
 
         if tx.nonce > expected:
             self.future_transactions.setdefault(tx.sender, {})[tx.nonce] = tx
-            return False
+            raise InvalidNonceError("Nonce too high (buffered)")
 
         # nonce == expected
 
@@ -32,7 +37,7 @@ class Ledger:
             sender_balance = self.balances.get(tx.sender, 0)
 
             if sender_balance < tx.amount:
-                return False
+                raise InsufficientBalanceError()
 
             self.balances[tx.sender] = sender_balance - tx.amount
 

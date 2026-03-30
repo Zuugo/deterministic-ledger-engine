@@ -1,6 +1,7 @@
 import threading
 
 from ledger_engine.core.ledger import Ledger
+from ledger_engine.exceptions.exceptions import LedgerError
 from ledger_engine.models.transaction import Transaction
 from ledger_engine.replay.replay_engine import ReplayEngine
 from ledger_engine.storage.snapshot_store import SnapshotStore
@@ -48,14 +49,11 @@ class TransactionProcessor:
         # process a new transaction
 
         with self.lock:
+            try:
+                self.ledger.apply_transaction(tx)
 
-            if tx.tx_id in self.ledger.processed_ids:
-                return True, None
-
-            success = self.ledger.apply_transaction(tx)
-
-            if not success:
-                return False, "Ledger rejected transaction"
+            except LedgerError as e:
+                return False, str(e) or e.__class__.__name__
 
             self.journal.append(tx)
             self.tx_count += 1
