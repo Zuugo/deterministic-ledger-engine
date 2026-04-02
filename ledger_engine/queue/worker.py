@@ -1,6 +1,8 @@
 import threading
 import time
 
+from ledger.shared.state import status_store
+
 
 class TransactionWorker:
 
@@ -21,5 +23,7 @@ class TransactionWorker:
 
                 success, reason = self.processor.process(tx)
 
-                if not success:
-                    print(f"[WORKER ERROR] {reason}")
+                if success:
+                    status_store.set_status(tx.tx_id, "SUCCESS")
+                else:
+                    status_store.set_status(tx.tx_id, "FAILED", reason)
