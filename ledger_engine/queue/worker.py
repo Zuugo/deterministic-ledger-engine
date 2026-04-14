@@ -1,7 +1,7 @@
 import threading
 import time
 
-from ledger.shared.state import status_store
+from ledger.shared.state import dlq, status_store
 
 
 class TransactionWorker:
@@ -17,13 +17,29 @@ class TransactionWorker:
         thread.start()
 
     def run(self):
+        MAX_RETRIES = 3
         while self.running:
             if not self.queue.is_empty():
-                tx = self.queue.dequeue()
+                item = self.queue.dequeue()
+
+                tx = item["tx"]
+                retries = item["retries"]
 
                 success, reason = self.processor.process(tx)
 
                 if success:
                     status_store.set_status(tx.tx_id, "SUCCESS")
                 else:
-                    status_store.set_status(tx.tx_id, "FAILED", reason)
+                    if retries < MAX_RETRIES:
+                        print(f"[RETRY] {tx.tx_id} attempt {retries + 1}")
+
+                        item["retries"] += 1
+                        self.queue.enqueue(item)
+
+                    else:
+                        print(f"[DLQ] {tx.tx_id} failed permanently")
+
+                        dlq.add(item, reason)
+                        status_store.set_status(tx.tx_id, "FAILED", reason)
+            else:
+                time.sleep(0.01)
