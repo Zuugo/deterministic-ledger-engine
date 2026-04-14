@@ -22,6 +22,12 @@ class TransactionWorker:
             if not self.queue.is_empty():
                 item = self.queue.dequeue()
 
+                now = time.time()
+
+                if item["next_attempt"] > now:
+                    self.queue.enqueue(item)
+                    continue
+
                 tx = item["tx"]
                 retries = item["retries"]
 
@@ -31,9 +37,11 @@ class TransactionWorker:
                     status_store.set_status(tx.tx_id, "SUCCESS")
                 else:
                     if retries < MAX_RETRIES:
-                        print(f"[RETRY] {tx.tx_id} attempt {retries + 1}")
+                        delay = 2**retries
+                        print(f"[SCHEDULE RETRY] {tx.tx_id} in {delay}s")
 
                         item["retries"] += 1
+                        item["next_attempt"] = time.time() + delay
                         self.queue.enqueue(item)
 
                     else:
