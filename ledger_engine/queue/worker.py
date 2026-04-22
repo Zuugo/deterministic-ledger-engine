@@ -1,6 +1,11 @@
 import threading
 import time
 
+import django
+
+django.setup()
+
+from ledger.models import TransactionStatus
 from ledger.shared.state import dlq, status_store
 
 
@@ -26,6 +31,7 @@ class TransactionWorker:
 
                 if item["next_attempt"] > now:
                     self.queue.enqueue(item)
+                    time.sleep(0.01)
                     continue
 
                 tx = item["tx"]
@@ -34,7 +40,9 @@ class TransactionWorker:
                 success, reason = self.processor.process(tx)
 
                 if success:
-                    status_store.set_status(tx.tx_id, "SUCCESS")
+                    TransactionStatus.objects.update_or_create(
+                        tx_id=tx.tx_id, defaults={"status": "SUCCESS", "reason": None}
+                    )
                 else:
                     if retries < MAX_RETRIES:
                         delay = 2**retries
@@ -48,6 +56,10 @@ class TransactionWorker:
                         print(f"[DLQ] {tx.tx_id} failed permanently")
 
                         dlq.add(item, reason)
-                        status_store.set_status(tx.tx_id, "FAILED", reason)
+                        TransactionStatus.objects.update_or_create(
+                            tx_id=tx.tx_id,
+                            defaults={"status": "FAILED", "reason": reason},
+                        )
+                        continue
             else:
                 time.sleep(0.01)
