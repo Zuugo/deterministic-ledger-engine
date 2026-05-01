@@ -5,6 +5,8 @@ import django
 from django.db import transaction
 from ledger.shared.state import dlq, status_store
 
+from ledger_engine.models.transaction import Transaction
+
 
 class TransactionWorker:
 
@@ -49,7 +51,16 @@ class TransactionWorker:
                 job.status = "PROCESSING"
                 job.save()
 
-            success, reason, retryable = self.processor.process(job)
+            tx = Transaction(
+                tx_id=job.tx_id,
+                sender=job.sender,
+                receiver=job.receiver,
+                amount=job.amount,
+                nonce=job.nonce,
+                timestamp=now,
+            )
+
+            success, reason, retryable = self.processor.process(tx)
 
             print(
                 f"[WORKER] Result for job {job.tx_id}: success={success}, reason={reason}"
