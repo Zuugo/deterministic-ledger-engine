@@ -44,7 +44,7 @@ class TransactionProcessor:
 
     def process(self, tx: Transaction):
         if not self.validate.validate(tx):
-            return False, "Invalid Transaction"
+            return False, "Invalid Transaction", False
 
         # process a new transaction
 
@@ -53,7 +53,10 @@ class TransactionProcessor:
                 self.ledger.apply_transaction(tx)
 
             except LedgerError as e:
-                return False, str(e) or e.__class__.__name__
+                return False, str(e) or e.__class__.__name__, False
+
+            except Exception as e:
+                return False, f"System error: {str(e)}", True
 
             self.journal.append(tx)
             self.tx_count += 1
@@ -63,4 +66,4 @@ class TransactionProcessor:
                 self.snapshot_store.save_snapshot(self.ledger, self.tx_count)
                 self.tx_since_snapshot = 0
 
-            return True, None
+            return True, None, False

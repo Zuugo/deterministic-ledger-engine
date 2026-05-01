@@ -2,17 +2,13 @@ import threading
 import time
 
 import django
-
-django.setup()
-
-from ledger.models import TransactionStatus
+from django.db import transaction
 from ledger.shared.state import dlq, status_store
 
 
 class TransactionWorker:
 
     def __init__(self, queue, processor):
-        self.queue = queue
         self.processor = processor
         self.running = False
 
@@ -22,44 +18,72 @@ class TransactionWorker:
         thread.start()
 
     def run(self):
+        from ledger.models import TransactionQueue, TransactionStatus
+
         MAX_RETRIES = 3
+
+        print("[WORKER] started.....")
+
         while self.running:
-            if not self.queue.is_empty():
-                item = self.queue.dequeue()
+            now = time.time()
 
-                now = time.time()
+            with transaction.atomic():
+                job = (
+                    TransactionQueue.objects.filter(
+                        status__in=["PENDING", "RETRY"], next_attempt__lte=now
+                    )
+                    .order_by("created_at")
+                    .first()
+                )
 
-                if item["next_attempt"] > now:
-                    self.queue.enqueue(item)
-                    time.sleep(0.01)
+                if job:
+                    job.status = "PROCESSING"
+                    job.save()
+
+                if not job:
+                    time.sleep(0.5)
                     continue
 
-                tx = item["tx"]
-                retries = item["retries"]
+                print(f"[WORKER] Picked job {job.tx_id} (retry={job.retries})")
 
-                success, reason = self.processor.process(tx)
+                job.status = "PROCESSING"
+                job.save()
 
-                if success:
-                    TransactionStatus.objects.update_or_create(
-                        tx_id=tx.tx_id, defaults={"status": "SUCCESS", "reason": None}
-                    )
-                else:
-                    if retries < MAX_RETRIES:
-                        delay = 2**retries
-                        print(f"[SCHEDULE RETRY] {tx.tx_id} in {delay}s")
+            success, reason, retryable = self.processor.process(job)
 
-                        item["retries"] += 1
-                        item["next_attempt"] = time.time() + delay
-                        self.queue.enqueue(item)
+            print(
+                f"[WORKER] Result for job {job.tx_id}: success={success}, reason={reason}"
+            )
 
-                    else:
-                        print(f"[DLQ] {tx.tx_id} failed permanently")
+            if success:
+                job.status = "SUCCESS"
+                job.save()
 
-                        dlq.add(item, reason)
-                        TransactionStatus.objects.update_or_create(
-                            tx_id=tx.tx_id,
-                            defaults={"status": "FAILED", "reason": reason},
-                        )
-                        continue
+                TransactionStatus.objects.update_or_create(
+                    tx_id=job.tx_id, defaults={"status": "SUCCESS", "reason": None}
+                )
+
+                print(f"[WORKER] SUCCESS {job.tx_id}")
+
             else:
-                time.sleep(0.01)
+                if retryable and job.retries < MAX_RETRIES:
+                    delay = max(1, 2**job.retries)
+
+                    job.retries += 1
+                    job.next_attempt = time.time() + delay
+                    job.status = "RETRY"
+                    job.save()
+
+                    print(f"[SCHEDULE RETRY] {job.tx_id} in {delay}s")
+
+                else:
+                    job.status = "FAILED"
+                    job.reason = reason
+                    job.save()
+
+                    TransactionStatus.objects.update_or_create(
+                        tx_id=job.tx_id,
+                        defaults={"status": "FAILED", "reason": reason},
+                    )
+
+                    print(f"[DLQ] {job.tx_id} failed permanently")
