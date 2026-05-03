@@ -23,6 +23,7 @@ class TransactionWorker:
         from ledger.models import TransactionQueue, TransactionStatus
 
         MAX_RETRIES = 3
+        TIMEOUT = 10
 
         print("[WORKER] started.....")
 
@@ -30,6 +31,19 @@ class TransactionWorker:
             now = time.time()
 
             with transaction.atomic():
+                stuck_jobs = TransactionQueue.objects.filter(
+                    status="PROCESSING",
+                    processing_started_at__lte=time.time() - TIMEOUT,
+                )
+
+                for stuck in stuck_jobs:
+                    print(f"[RECOVERY] Releasing stuck job {stuck.tx_id}")
+
+                    stuck.status = "RETRY"
+                    stuck.retries += 1
+                    stuck.next_attempt = time.time()
+                    stuck.save()
+
                 job = (
                     TransactionQueue.objects.filter(
                         status__in=["PENDING", "RETRY"], next_attempt__lte=now
@@ -40,6 +54,7 @@ class TransactionWorker:
 
                 if job:
                     job.status = "PROCESSING"
+                    job.processing_started_at = time.time()
                     job.save()
 
                 if not job:
@@ -68,6 +83,7 @@ class TransactionWorker:
 
             if success:
                 job.status = "SUCCESS"
+                job.processing_started_at = None
                 job.save()
 
                 TransactionStatus.objects.update_or_create(
@@ -90,6 +106,7 @@ class TransactionWorker:
                 else:
                     job.status = "FAILED"
                     job.reason = reason
+                    job.processing_started_at = None
                     job.save()
 
                     TransactionStatus.objects.update_or_create(

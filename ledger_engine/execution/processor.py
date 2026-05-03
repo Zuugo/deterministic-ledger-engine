@@ -43,6 +43,10 @@ class TransactionProcessor:
                 raise RuntimeError("Ledger replay failed - journal corrupted")
 
     def process(self, tx: Transaction):
+        if tx.tx_id == "FAIL_TEST2":
+            print(f"[TEST] Forced failure triggered")
+            return False, "Forced failure", True
+
         if not self.validate.validate(tx):
             return False, "Invalid Transaction", False
 
