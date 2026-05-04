@@ -39,10 +39,29 @@ class TransactionWorker:
                 for stuck in stuck_jobs:
                     print(f"[RECOVERY] Releasing stuck job {stuck.tx_id}")
 
+                    if stuck.retries >= MAX_RETRIES:
+                        stuck.status = "FAILED"
+                        stuck.reason = "Exceeded retries during recovery"
+                        stuck.save()
+
+                        TransactionStatus.objects.update_or_create(
+                            tx_id=stuck.tx_id,
+                            defaults={"status": "FAILED", "reason": stuck.reason},
+                        )
+
+                        print(f"[RECOVERY -> DLQ] {stuck.tx_id}")
+                        continue
+
+                    delay = max(1, 2**stuck.retries)
+
                     stuck.status = "RETRY"
                     stuck.retries += 1
-                    stuck.next_attempt = time.time()
+                    stuck.next_attempt = time.time() + delay
                     stuck.save()
+
+                    print(
+                        f"[RECOVERY -> RETRY] {stuck.tx_id} in {delay}s (retry={stuck.retries})"
+                    )
 
                 job = (
                     TransactionQueue.objects.filter(
@@ -56,8 +75,7 @@ class TransactionWorker:
                     job.status = "PROCESSING"
                     job.processing_started_at = time.time()
                     job.save()
-
-                if not job:
+                else:
                     time.sleep(0.5)
                     continue
 

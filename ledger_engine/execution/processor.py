@@ -1,4 +1,5 @@
 import threading
+import time
 
 from ledger_engine.core.ledger import Ledger
 from ledger_engine.exceptions.exceptions import LedgerError
@@ -43,9 +44,9 @@ class TransactionProcessor:
                 raise RuntimeError("Ledger replay failed - journal corrupted")
 
     def process(self, tx: Transaction):
-        if tx.tx_id == "FAIL_TEST2":
-            print(f"[TEST] Forced failure triggered")
-            return False, "Forced failure", True
+        if tx.tx_id == "TEST_RECOVERY2":
+            print(f"[TEST] Simulating crash")
+            time.sleep(15)
 
         if not self.validate.validate(tx):
             return False, "Invalid Transaction", False
