@@ -1,8 +1,10 @@
 import threading
 import time
+from datetime import timedelta
 
 import django
 from django.db import transaction
+from django.utils.timezone import now
 from ledger.shared.state import dlq, status_store
 
 from ledger_engine.models.transaction import Transaction
@@ -28,12 +30,13 @@ class TransactionWorker:
         print("[WORKER] started.....")
 
         while self.running:
-            now = time.time()
+            current_time = now()
 
             with transaction.atomic():
                 stuck_jobs = TransactionQueue.objects.filter(
                     status="PROCESSING",
-                    processing_started_at__lte=time.time() - TIMEOUT,
+                    processing_started_at__lte=current_time
+                    - timedelta(seconds=TIMEOUT),
                 )
 
                 for stuck in stuck_jobs:
@@ -56,7 +59,7 @@ class TransactionWorker:
 
                     stuck.status = "RETRY"
                     stuck.retries += 1
-                    stuck.next_attempt = time.time() + delay
+                    stuck.next_attempt = current_time + timedelta(seconds=delay)
                     stuck.save()
 
                     print(
@@ -65,7 +68,7 @@ class TransactionWorker:
 
                 job = (
                     TransactionQueue.objects.filter(
-                        status__in=["PENDING", "RETRY"], next_attempt__lte=now
+                        status__in=["PENDING", "RETRY"], next_attempt__lte=current_time
                     )
                     .order_by("created_at")
                     .first()
@@ -73,16 +76,13 @@ class TransactionWorker:
 
                 if job:
                     job.status = "PROCESSING"
-                    job.processing_started_at = time.time()
+                    job.processing_started_at = current_time
                     job.save()
-                else:
-                    time.sleep(0.5)
-                    continue
+            if not job:
+                time.sleep(0.5)
+                continue
 
-                print(f"[WORKER] Picked job {job.tx_id} (retry={job.retries})")
-
-                job.status = "PROCESSING"
-                job.save()
+            print(f"[WORKER] Picked job {job.tx_id} (retry={job.retries})")
 
             tx = Transaction(
                 tx_id=job.tx_id,
@@ -90,7 +90,7 @@ class TransactionWorker:
                 receiver=job.receiver,
                 amount=job.amount,
                 nonce=job.nonce,
-                timestamp=now,
+                timestamp=current_time,
             )
 
             success, reason, retryable = self.processor.process(tx)
@@ -115,8 +115,9 @@ class TransactionWorker:
                     delay = max(1, 2**job.retries)
 
                     job.retries += 1
-                    job.next_attempt = time.time() + delay
+                    job.next_attempt = current_time + timedelta(seconds=delay)
                     job.status = "RETRY"
+                    job.processing_started_at = None
                     job.save()
 
                     print(f"[SCHEDULE RETRY] {job.tx_id} in {delay}s")

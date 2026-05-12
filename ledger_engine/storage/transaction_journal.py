@@ -12,8 +12,16 @@ class TransactionJournal:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def append(self, tx: Transaction):
+        record = {
+            "tx_id": tx.tx_id,
+            "sender": tx.sender,
+            "receiver": tx.receiver,
+            "amount": tx.amount,
+            "nonce": tx.nonce,
+            "timestamp": tx.timestamp.isoformat(),
+        }
         with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(tx.__dict__) + "\n")
+            f.write(json.dumps(record) + "\n")
             f.flush()
             fsync(f.fileno())
 
