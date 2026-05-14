@@ -111,7 +111,25 @@ class TransactionWorker:
                 print(f"[WORKER] SUCCESS {job.tx_id}")
 
             else:
-                if retryable and job.retries < MAX_RETRIES:
+                if reason == "Buffered future transaction":
+                    job.status = "BUFFERED"
+                    job.reason = reason
+                    job.processing_started_at = None
+                    job.save()
+
+                    TransactionStatus.objects.update_or_create(
+                        tx_id=job.tx_id,
+                        defaults={
+                            "status": "BUFFERED",
+                            "reason": reason,
+                        },
+                    )
+
+                    print(f"[BUFFERED] {job.tx_id}")
+
+                    continue
+
+                elif retryable and job.retries < MAX_RETRIES:
                     delay = max(1, 2**job.retries)
 
                     job.retries += 1

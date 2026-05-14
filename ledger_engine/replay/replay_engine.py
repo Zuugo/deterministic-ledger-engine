@@ -1,3 +1,5 @@
+from ledger.models import TransactionStatus
+
 from ledger_engine.core.ledger import Ledger
 from ledger_engine.models.transaction import Transaction
 from ledger_engine.storage.snapshot_store import SnapshotStore
@@ -28,3 +30,18 @@ class ReplayEngine:
         }
 
         return snapshot["tx_index"]
+
+    def reconcile_transaction_statuses(self):
+        for tx_id in self.ledger.processed_ids:
+
+            TransactionStatus.objects.update_or_create(
+                tx_id=tx_id,
+                defaults={
+                    "status": "SUCCESS",
+                    "reason": None,
+                },
+            )
+
+        print(
+            f"[RECONCILE] Restored {len(self.ledger.processed_ids)} transaction statuses"
+        )

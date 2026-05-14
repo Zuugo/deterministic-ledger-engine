@@ -12,6 +12,11 @@ class InsufficientBalanceError(LedgerError):
         return "Insufficient balance"
 
 
+class FutureNonceError(LedgerError):
+    def __str__(self):
+        return "Future nonce (buffered)"
+
+
 class InvalidNonceError(LedgerError):
     def __str__(self):
-        return "Invalid nonce"
+        return "Nonce too low"

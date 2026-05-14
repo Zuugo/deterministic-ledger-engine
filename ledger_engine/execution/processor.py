@@ -1,8 +1,16 @@
 import threading
 import time
 
+from django.utils.timezone import now
+
 from ledger_engine.core.ledger import Ledger
-from ledger_engine.exceptions.exceptions import LedgerError
+from ledger_engine.exceptions.exceptions import (
+    DuplicateTransactionError,
+    FutureNonceError,
+    InsufficientBalanceError,
+    InvalidNonceError,
+    LedgerError,
+)
 from ledger_engine.models.transaction import Transaction
 from ledger_engine.replay.replay_engine import ReplayEngine
 from ledger_engine.storage.snapshot_store import SnapshotStore
@@ -19,7 +27,7 @@ class TransactionProcessor:
         snapshot_store: SnapshotStore,
         replay_engine: ReplayEngine,
         validate: TransactionValidator,
-        snapshot_interval: int = 1000,
+        snapshot_interval: int = 5,
     ):
         self.ledger = ledger
         self.journal = journal
@@ -39,9 +47,20 @@ class TransactionProcessor:
         snapshot_index = self.replay_engine.restore_from_snapshot()
         transactions = self.journal.load_from(snapshot_index)
 
+        print(f"[REPLAY] snapshot_index={snapshot_index}")
+        print(f"[REPLAY] replay_count={len(transactions)}")
+
         for tx in transactions:
+            print(f"[REPLAY TX] {tx.tx_id}")
             if not self.ledger.apply_transaction(tx):
                 raise RuntimeError("Ledger replay failed - journal corrupted")
+
+        print(f"[REPLAY STATE]")
+        print(self.ledger.balances)
+        print(self.ledger.nonces)
+        print(self.ledger.processed_ids)
+
+        self.replay_engine.reconcile_transaction_statuses()
 
     def process(self, tx: Transaction):
         if tx.tx_id == "TEST_RECOVERY2":
@@ -57,8 +76,17 @@ class TransactionProcessor:
             try:
                 self.ledger.apply_transaction(tx)
 
-            except LedgerError as e:
-                return False, str(e) or e.__class__.__name__, False
+            except FutureNonceError:
+                return False, "Buffered future transaction", False
+
+            except DuplicateTransactionError:
+                return False, "Duplicate transaction", False
+
+            except InvalidNonceError:
+                return False, "Invalid nonce", False
+
+            except InsufficientBalanceError:
+                return False, "Insufficient balance", False
 
             except Exception as e:
                 return False, f"System error: {str(e)}", True
@@ -70,5 +98,27 @@ class TransactionProcessor:
             if self.tx_since_snapshot >= self.snapshot_interval:
                 self.snapshot_store.save_snapshot(self.ledger, self.tx_count)
                 self.tx_since_snapshot = 0
+
+            promoted = self.ledger.get_processable_buffered(tx.sender)
+
+            if promoted:
+                print(f"[PROMOTE BUFFER] {promoted.tx_id}")
+
+                from ledger.models import TransactionQueue, TransactionStatus
+
+                TransactionQueue.objects.filter(
+                    tx_id=promoted.tx_id,
+                ).update(
+                    status="PENDING",
+                    next_attempt=now(),
+                )
+
+                TransactionStatus.objects.update_or_create(
+                    tx_id=promoted.tx_id,
+                    defaults={
+                        "status": "PENDING",
+                        "reason": None,
+                    },
+                )
 
             return True, None, False

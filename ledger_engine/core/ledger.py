@@ -1,5 +1,6 @@
 from ledger_engine.exceptions.exceptions import (
     DuplicateTransactionError,
+    FutureNonceError,
     InsufficientBalanceError,
     InvalidNonceError,
 )
@@ -22,11 +23,11 @@ class Ledger:
         expected = self.nonces.get(tx.sender, 0) + 1
 
         if tx.nonce < expected:
-            raise InvalidNonceError("Nonce too low")
+            raise InvalidNonceError()
 
         if tx.nonce > expected:
             self.future_transactions.setdefault(tx.sender, {})[tx.nonce] = tx
-            raise InvalidNonceError("Nonce too high (buffered)")
+            raise FutureNonceError()
 
         # nonce == expected
 
@@ -48,10 +49,9 @@ class Ledger:
 
         self.processed_ids.add(tx.tx_id)
 
-        self.process_buffer(tx.sender)
-
         return True
 
+    """
     def process_buffer(self, sender: str):
         expected = self.nonces.get(sender, 0) + 1
         sender_buffer = self.future_transactions.get(sender, {})
@@ -62,8 +62,20 @@ class Ledger:
 
             expected = self.nonces.get(sender, 0) + 1
 
-        if not sender_buffer:
+        if not sender_buffer: 
             self.future_transactions.pop(sender, None)
+
+    """
 
     def get_balances(self):
         return dict(self.balances)
+
+    def get_processable_buffered(self, sender: str):
+        expected = self.nonces.get(sender, 0) + 1
+
+        sender_buffer = self.future_transactions.get(sender, {})
+
+        if expected in sender_buffer:
+            return sender_buffer.pop(expected)
+
+        return None
