@@ -105,6 +105,9 @@ class TransactionProcessor:
                 print(f"[PROMOTE BUFFER] {promoted.tx_id}")
 
                 from ledger.models import TransactionQueue, TransactionStatus
+                from ledger.services.lifecycle_service import (
+                    TransactionLifecycleService,
+                )
 
                 TransactionQueue.objects.filter(
                     tx_id=promoted.tx_id,
@@ -113,12 +116,9 @@ class TransactionProcessor:
                     next_attempt=now(),
                 )
 
-                TransactionStatus.objects.update_or_create(
+                TransactionLifecycleService.transition(
                     tx_id=promoted.tx_id,
-                    defaults={
-                        "status": "PENDING",
-                        "reason": None,
-                    },
+                    status="PENDING",
                 )
 
             return True, None, False

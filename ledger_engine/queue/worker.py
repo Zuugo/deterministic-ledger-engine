@@ -23,6 +23,8 @@ class TransactionWorker:
 
     def run(self):
         from ledger.models import TransactionQueue, TransactionStatus
+        from ledger.services.lifecycle_service import TransactionLifecycleService
+        from ledger.services.status_service import StatusService
 
         MAX_RETRIES = 3
         TIMEOUT = 10
@@ -100,12 +102,12 @@ class TransactionWorker:
             )
 
             if success:
-                job.status = "SUCCESS"
                 job.processing_started_at = None
-                job.save()
+                job.save(update_fields=["processing_started_at"])
 
-                TransactionStatus.objects.update_or_create(
-                    tx_id=job.tx_id, defaults={"status": "SUCCESS", "reason": None}
+                TransactionLifecycleService.transition(
+                    tx_id=job.tx_id,
+                    status="SUCCESS",
                 )
 
                 print(f"[WORKER] SUCCESS {job.tx_id}")
@@ -134,21 +136,32 @@ class TransactionWorker:
 
                     job.retries += 1
                     job.next_attempt = current_time + timedelta(seconds=delay)
-                    job.status = "RETRY"
                     job.processing_started_at = None
-                    job.save()
+                    job.save(
+                        update_fields=[
+                            "retries",
+                            "next_attempt",
+                            "processing_started_at",
+                        ]
+                    )
+
+                    TransactionLifecycleService.transition(
+                        tx_id=job.tx_id,
+                        status="RETRY",
+                        reason=reason,
+                    )
 
                     print(f"[SCHEDULE RETRY] {job.tx_id} in {delay}s")
 
                 else:
-                    job.status = "FAILED"
-                    job.reason = reason
-                    job.processing_started_at = None
-                    job.save()
 
-                    TransactionStatus.objects.update_or_create(
+                    job.processing_started_at = None
+                    job.save(update_fields=["processing_started_at"])
+
+                    TransactionLifecycleService.transition(
                         tx_id=job.tx_id,
-                        defaults={"status": "FAILED", "reason": reason},
+                        status="FAILED",
+                        reason=reason,
                     )
 
                     print(f"[DLQ] {job.tx_id} failed permanently")
