@@ -42,6 +42,7 @@ class TransactionProcessor:
 
     def start(self):
 
+        from ledger.models import LedgerEvent
         from ledger.services.replay_service import ReplayService
 
         # restore ledger state on startup
@@ -55,11 +56,27 @@ class TransactionProcessor:
             },
         )
 
+        LedgerEvent.objects.create(
+            tx_id=None,
+            event="SNAPSHOT_RESTORED",
+            details={
+                "snapshot_index": snapshot_index,
+            },
+        )
+
         transactions = self.journal.load_from(snapshot_index)
 
         ReplayService.log(
             "JOURNAL_REPLAY_STARTED",
             {
+                "count": len(transactions),
+            },
+        )
+
+        LedgerEvent.objects.create(
+            tx_id=None,
+            event="JOURNAL_REPLAY_STARTED",
+            details={
                 "count": len(transactions),
             },
         )
@@ -70,6 +87,14 @@ class TransactionProcessor:
             ReplayService.log(
                 "REPLAY_TX",
                 {
+                    "tx_id": tx.tx_id,
+                },
+            )
+
+            LedgerEvent.objects.create(
+                tx_id=tx.tx_id,
+                event="REPLAY_TX",
+                details={
                     "tx_id": tx.tx_id,
                 },
             )
@@ -88,12 +113,23 @@ class TransactionProcessor:
             },
         )
 
+        LedgerEvent.objects.create(
+            tx_id=None,
+            event="REPLAY_COMPLETED",
+            details={
+                "balances": self.ledger.balances,
+                "nonce": self.ledger.nonces,
+            },
+        )
+
         for sender, nonce in self.ledger.nonces.items():
 
             if nonce < 0:
                 raise RuntimeError(f"Corrupted nonce state for {sender}")
 
     def process(self, tx: Transaction):
+        from ledger.models import LedgerEvent
+
         if tx.tx_id == "TEST_RECOVERY2":
             print(f"[TEST] Simulating crash")
             time.sleep(15)
@@ -108,6 +144,14 @@ class TransactionProcessor:
                 self.ledger.apply_transaction(tx)
 
             except FutureNonceError:
+                LedgerEvent.objects.create(
+                    tx_id=tx.tx_id,
+                    event="BUFFERED",
+                    details={
+                        "sender": tx.sender,
+                        "nonce": tx.nonce,
+                    },
+                )
                 return False, "Buffered future transaction", False
 
             except DuplicateTransactionError:
@@ -133,11 +177,20 @@ class TransactionProcessor:
             promoted = self.ledger.get_processable_buffered(tx.sender)
 
             if promoted:
-                print(f"[PROMOTE BUFFER] {promoted.tx_id}")
 
                 from ledger.models import TransactionQueue, TransactionStatus
                 from ledger.services.lifecycle_service import (
                     TransactionLifecycleService,
+                )
+
+                print(f"[PROMOTE BUFFER] {promoted.tx_id}")
+
+                LedgerEvent.objects.create(
+                    tx_id=tx.tx_id,
+                    event="PROMOTED",
+                    details={
+                        "sender": promoted.sender,
+                    },
                 )
 
                 TransactionQueue.objects.filter(

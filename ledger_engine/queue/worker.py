@@ -22,7 +22,7 @@ class TransactionWorker:
         thread.start()
 
     def run(self):
-        from ledger.models import TransactionQueue, TransactionStatus
+        from ledger.models import LedgerEvent, TransactionQueue, TransactionStatus
         from ledger.services.lifecycle_service import TransactionLifecycleService
         from ledger.services.status_service import StatusService
 
@@ -83,6 +83,14 @@ class TransactionWorker:
             if not job:
                 time.sleep(0.5)
                 continue
+
+            LedgerEvent.objects.create(
+                tx_id=job.tx_id,
+                event="PROCESSING",
+                details={
+                    "retry": job.retries,
+                },
+            )
 
             print(f"[WORKER] Picked job {job.tx_id} (retry={job.retries})")
 
@@ -151,6 +159,15 @@ class TransactionWorker:
                         reason=reason,
                     )
 
+                    LedgerEvent.objects.create(
+                        tx_id=job.tx_id,
+                        event="RETRY",
+                        details={
+                            "retries": job.retries,
+                            "next_attempt": str(job.next_attempt),
+                        },
+                    )
+
                     print(f"[SCHEDULE RETRY] {job.tx_id} in {delay}s")
 
                 else:
@@ -162,6 +179,14 @@ class TransactionWorker:
                         tx_id=job.tx_id,
                         status="FAILED",
                         reason=reason,
+                    )
+
+                    LedgerEvent.objects.create(
+                        tx_id=job.tx_id,
+                        event="FAILED",
+                        details={
+                            "reason": reason,
+                        },
                     )
 
                     print(f"[DLQ] {job.tx_id} failed permanently")
