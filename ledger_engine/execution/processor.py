@@ -42,25 +42,56 @@ class TransactionProcessor:
 
     def start(self):
 
+        from ledger.services.replay_service import ReplayService
+
         # restore ledger state on startup
 
         snapshot_index = self.replay_engine.restore_from_snapshot()
+
+        ReplayService.log(
+            "SNAPSHOT_RESTORED",
+            {
+                "snapshot_index": snapshot_index,
+            },
+        )
+
         transactions = self.journal.load_from(snapshot_index)
 
-        print(f"[REPLAY] snapshot_index={snapshot_index}")
-        print(f"[REPLAY] replay_count={len(transactions)}")
+        ReplayService.log(
+            "JOURNAL_REPLAY_STARTED",
+            {
+                "count": len(transactions),
+            },
+        )
 
         for tx in transactions:
             print(f"[REPLAY TX] {tx.tx_id}")
+
+            ReplayService.log(
+                "REPLAY_TX",
+                {
+                    "tx_id": tx.tx_id,
+                },
+            )
+
+            if tx.tx_id in self.ledger.processed_ids:
+                continue
+
             if not self.ledger.apply_transaction(tx):
                 raise RuntimeError("Ledger replay failed - journal corrupted")
 
-        print(f"[REPLAY STATE]")
-        print(self.ledger.balances)
-        print(self.ledger.nonces)
-        print(self.ledger.processed_ids)
+        ReplayService.log(
+            "REPLAY_COMPLETED",
+            {
+                "balances": self.ledger.balances,
+                "nonces": self.ledger.nonces,
+            },
+        )
 
-        self.replay_engine.reconcile_transaction_statuses()
+        for sender, nonce in self.ledger.nonces.items():
+
+            if nonce < 0:
+                raise RuntimeError(f"Corrupted nonce state for {sender}")
 
     def process(self, tx: Transaction):
         if tx.tx_id == "TEST_RECOVERY2":
