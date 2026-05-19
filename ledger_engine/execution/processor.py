@@ -43,6 +43,7 @@ class TransactionProcessor:
     def start(self):
 
         from ledger.models import LedgerEvent
+        from ledger.services.event_service import EventService
         from ledger.services.replay_service import ReplayService
 
         # restore ledger state on startup
@@ -56,10 +57,10 @@ class TransactionProcessor:
             },
         )
 
-        LedgerEvent.objects.create(
-            tx_id=None,
-            event="SNAPSHOT_RESTORED",
-            details={
+        EventService.emit(
+            None,
+            "SNAPSHOT_RESTORED",
+            {
                 "snapshot_index": snapshot_index,
             },
         )
@@ -73,10 +74,10 @@ class TransactionProcessor:
             },
         )
 
-        LedgerEvent.objects.create(
-            tx_id=None,
-            event="JOURNAL_REPLAY_STARTED",
-            details={
+        EventService.emit(
+            None,
+            "JOURNAL_REPLAY_STARTED",
+            {
                 "count": len(transactions),
             },
         )
@@ -91,10 +92,10 @@ class TransactionProcessor:
                 },
             )
 
-            LedgerEvent.objects.create(
-                tx_id=tx.tx_id,
-                event="REPLAY_TX",
-                details={
+            EventService.emit(
+                tx.tx_id,
+                "TX_REPLAY",
+                {
                     "tx_id": tx.tx_id,
                 },
             )
@@ -113,12 +114,12 @@ class TransactionProcessor:
             },
         )
 
-        LedgerEvent.objects.create(
-            tx_id=None,
-            event="REPLAY_COMPLETED",
-            details={
+        EventService.emit(
+            None,
+            "REPLAY_COMPLETED",
+            {
                 "balances": self.ledger.balances,
-                "nonce": self.ledger.nonces,
+                "nonces": self.ledger.nonces,
             },
         )
 
@@ -129,6 +130,7 @@ class TransactionProcessor:
 
     def process(self, tx: Transaction):
         from ledger.models import LedgerEvent
+        from ledger.services.event_service import EventService
 
         if tx.tx_id == "TEST_RECOVERY2":
             print(f"[TEST] Simulating crash")
@@ -144,12 +146,12 @@ class TransactionProcessor:
                 self.ledger.apply_transaction(tx)
 
             except FutureNonceError:
-                LedgerEvent.objects.create(
-                    tx_id=tx.tx_id,
-                    event="BUFFERED",
-                    details={
+                EventService.emit(
+                    tx.tx_id,
+                    "TX_BUFFERED",
+                    {
                         "sender": tx.sender,
-                        "nonce": tx.nonce,
+                        "nonces": tx.nonce,
                     },
                 )
                 return False, "Buffered future transaction", False
@@ -185,11 +187,12 @@ class TransactionProcessor:
 
                 print(f"[PROMOTE BUFFER] {promoted.tx_id}")
 
-                LedgerEvent.objects.create(
-                    tx_id=tx.tx_id,
-                    event="PROMOTED",
-                    details={
+                EventService.emit(
+                    promoted.tx_id,
+                    "BUFFER_PROMOTED",
+                    {
                         "sender": promoted.sender,
+                        "nonces": promoted.nonce,
                     },
                 )
 

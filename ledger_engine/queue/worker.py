@@ -23,6 +23,7 @@ class TransactionWorker:
 
     def run(self):
         from ledger.models import LedgerEvent, TransactionQueue, TransactionStatus
+        from ledger.services.event_service import EventService
         from ledger.services.lifecycle_service import TransactionLifecycleService
         from ledger.services.status_service import StatusService
 
@@ -84,14 +85,13 @@ class TransactionWorker:
                 time.sleep(0.5)
                 continue
 
-            LedgerEvent.objects.create(
-                tx_id=job.tx_id,
-                event="PROCESSING",
-                details={
+            EventService.emit(
+                job.tx_id,
+                "TX_PROCESSING_STARTED",
+                {
                     "retry": job.retries,
                 },
             )
-
             print(f"[WORKER] Picked job {job.tx_id} (retry={job.retries})")
 
             tx = Transaction(
@@ -135,6 +135,12 @@ class TransactionWorker:
                         },
                     )
 
+                    EventService.emit(
+                        job.tx_id,
+                        "TX_SUCCESS",
+                        {},
+                    )
+
                     print(f"[BUFFERED] {job.tx_id}")
 
                     continue
@@ -159,15 +165,14 @@ class TransactionWorker:
                         reason=reason,
                     )
 
-                    LedgerEvent.objects.create(
-                        tx_id=job.tx_id,
-                        event="RETRY",
-                        details={
-                            "retries": job.retries,
-                            "next_attempt": str(job.next_attempt),
+                    EventService.emit(
+                        job.tx_id,
+                        "TX_RETRY_SCHEDULED",
+                        {
+                            "retry": job.retries,
+                            "delay": delay,
                         },
                     )
-
                     print(f"[SCHEDULE RETRY] {job.tx_id} in {delay}s")
 
                 else:
@@ -181,12 +186,11 @@ class TransactionWorker:
                         reason=reason,
                     )
 
-                    LedgerEvent.objects.create(
-                        tx_id=job.tx_id,
-                        event="FAILED",
-                        details={
+                    EventService.emit(
+                        job.tx_id,
+                        "TX_DLQ",
+                        {
                             "reason": reason,
                         },
                     )
-
                     print(f"[DLQ] {job.tx_id} failed permanently")
