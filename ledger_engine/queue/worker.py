@@ -118,6 +118,16 @@ class TransactionWorker:
                     status="SUCCESS",
                 )
 
+                EventService.emit(
+                    job.tx_id,
+                    "TX_SUCCESS",
+                    {
+                        "sender": job.sender,
+                        "receiver": job.receiver,
+                        "amount": job.amount,
+                    },
+                )
+
                 print(f"[WORKER] SUCCESS {job.tx_id}")
 
             else:
@@ -137,7 +147,7 @@ class TransactionWorker:
 
                     EventService.emit(
                         job.tx_id,
-                        "TX_SUCCESS",
+                        "TX_BUFFERED",
                         {},
                     )
 
