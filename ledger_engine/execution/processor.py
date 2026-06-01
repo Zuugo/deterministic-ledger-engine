@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 
@@ -132,10 +133,16 @@ class TransactionProcessor:
         from ledger.models import LedgerEvent
         from ledger.services.event_service import EventService
 
+        """
         if tx.tx_id == "TEST_RECOVERY2":
-            print(f"[TEST] Simulating crash")
+            print(f"[TEST] Simulating recovery")
             time.sleep(15)
 
+        if tx.tx_id == "TEST_CRASH":
+            print(f"[TEST] Simulating crash")
+            os._exit(1)
+
+        """
         if not self.validate.validate(tx):
             return False, "Invalid Transaction", False
 
