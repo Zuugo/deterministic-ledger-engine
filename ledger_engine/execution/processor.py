@@ -143,7 +143,7 @@ class TransactionProcessor:
             os._exit(1)
 
         """
-        if tx.tx_id == "TEST_DLQ1":
+        if tx.tx_id == "TEST_DLQ2":
             print(f"[TEST] Simulating permanent failure")
             return False, "Permanent failure for DLQ testing", False
 

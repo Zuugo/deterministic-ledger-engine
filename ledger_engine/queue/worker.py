@@ -22,7 +22,12 @@ class TransactionWorker:
         thread.start()
 
     def run(self):
-        from ledger.models import LedgerEvent, TransactionQueue, TransactionStatus
+        from ledger.models import (
+            DeadLetterQueue,
+            LedgerEvent,
+            TransactionQueue,
+            TransactionStatus,
+        )
         from ledger.services.event_service import EventService
         from ledger.services.lifecycle_service import TransactionLifecycleService
         from ledger.services.status_service import StatusService
@@ -187,6 +192,16 @@ class TransactionWorker:
 
                 else:
 
+                    DeadLetterQueue.objects.create(
+                        tx_id=job.tx_id,
+                        sender=job.sender,
+                        receiver=job.receiver,
+                        amount=job.amount,
+                        nonce=job.nonce,
+                        retries=job.retries,
+                        reason=reason,
+                    )
+
                     job.processing_started_at = None
                     job.save(update_fields=["processing_started_at"])
 
@@ -204,3 +219,5 @@ class TransactionWorker:
                         },
                     )
                     print(f"[DLQ] {job.tx_id} failed permanently")
+
+                    continue
