@@ -142,11 +142,11 @@ class TransactionProcessor:
             print(f"[TEST] Simulating crash")
             os._exit(1)
 
-        """
-        if tx.tx_id == "TEST_DLQ2":
+        
+        if tx.tx_id == "TEST_DLQ3":
             print(f"[TEST] Simulating permanent failure")
             return False, "Permanent failure for DLQ testing", False
-
+        """
         if not self.validate.validate(tx):
             return False, "Invalid Transaction", False
 
