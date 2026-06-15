@@ -39,4 +39,4 @@ class TransactionJournal:
                 data = json.loads(line.strip())
                 transactions.append(Transaction(**data))
 
-        return transactions[start_index:]
+        return transactions
