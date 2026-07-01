@@ -12,7 +12,7 @@ class TransactionJournal:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.last_hash = "GENESIS"
+        self.last_hash = self._load_last_hash()
 
     def append(self, tx: Transaction):
 
@@ -51,7 +51,6 @@ class TransactionJournal:
             return []
 
         transactions = []
-        expected_previous_hash = "GENESIS"
 
         with open(self.path, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
@@ -60,44 +59,104 @@ class TransactionJournal:
 
                 data = json.loads(line.strip())
 
-                stored_checksum = data.pop("checksum")
-
-                calculated_checksum = hashlib.sha256(
-                    json.dumps(data, sort_keys=True).encode()
-                ).hexdigest()
-
-                if stored_checksum != calculated_checksum:
-                    raise Exception(
-                        f"Journal corruption detected at transaction {data['tx_id']}"
-                    )
-
-                if data["previous_hash"] != expected_previous_hash:
-                    raise Exception(f"Broken hash chain at transaction {data['tx_id']}")
-
-                stored_hash = data["hash"]
-
-                record_for_hash = {
-                    "tx_id": data["tx_id"],
-                    "sender": data["sender"],
-                    "receiver": data["receiver"],
-                    "amount": data["amount"],
-                    "nonce": data["nonce"],
-                    "timestamp": data["timestamp"],
-                    "previous_hash": data["previous_hash"],
-                }
-
-                calculated_hash = hashlib.sha256(
-                    json.dumps(record_for_hash, sort_keys=True).encode()
-                ).hexdigest()
-
-                if stored_hash != calculated_hash:
-                    raise Exception(f"Hash mismatch at transaction {data['tx_id']}")
-
-                expected_previous_hash = stored_hash
+                self._verify_record(data)
 
                 data.pop("previous_hash")
                 data.pop("hash")
+                data.pop("checksum")
 
                 transactions.append(Transaction(**data))
 
         return transactions
+
+    def load_after_hash(self, target_hash: str):
+
+        if not self.path.exists():
+            return []
+
+        transactions = []
+        found = False
+
+        with open(self.path, "r", encoding="utf-8") as f:
+
+            for line in f:
+
+                data = json.loads(line.strip())
+
+                stored_hash = data["hash"]
+
+                if found:
+
+                    self._verify_record(data)
+
+                    data.pop("previous_hash")
+                    data.pop("hash")
+                    data.pop("checksum")
+
+                    transactions.append(Transaction(**data))
+
+                if stored_hash == target_hash:
+                    found = True
+
+        return transactions
+
+    def _load_last_hash(self):
+
+        if not self.path.exists():
+            return "GENESIS"
+
+        last_line = None
+
+        with open(self.path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    last_line = line
+
+        if not last_line:
+            return "GENESIS"
+
+        data = json.loads(last_line)
+
+        return data["hash"]
+
+    def get_position(self):
+        if not self.path.exists():
+            return 0
+
+        with open(self.path) as f:
+            return sum(1 for _ in f)
+
+    def _verify_record(self, data):
+
+        stored_checksum = data["checksum"]
+
+        checksum_record = dict(data)
+        checksum_record.pop("checksum")
+
+        calculated_checksum = hashlib.sha256(
+            json.dumps(checksum_record, sort_keys=True).encode()
+        ).hexdigest()
+
+        if stored_checksum != calculated_checksum:
+            raise Exception(
+                f"Journal corruption detected at transaction {data['tx_id']}"
+            )
+
+        stored_hash = data["hash"]
+
+        record_for_hash = {
+            "tx_id": data["tx_id"],
+            "sender": data["sender"],
+            "receiver": data["receiver"],
+            "amount": data["amount"],
+            "nonce": data["nonce"],
+            "timestamp": data["timestamp"],
+            "previous_hash": data["previous_hash"],
+        }
+
+        calculated_hash = hashlib.sha256(
+            json.dumps(record_for_hash, sort_keys=True).encode()
+        ).hexdigest()
+
+        if stored_hash != calculated_hash:
+            raise Exception(f"Hash mismatch at transaction {data['tx_id']}")

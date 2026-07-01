@@ -17,15 +17,20 @@ class Ledger:
         self.future_transactions: dict[str, dict[int, Transaction]] = {}
 
     def apply_transaction(self, tx: Transaction) -> bool:
+        MAX_FUTURE_NONCE_GAP = 10
+
         if tx.tx_id in self.processed_ids:
             raise DuplicateTransactionError()
 
-        expected = self.nonces.get(tx.sender, 0) + 1
+        expected_nonce = self.nonces.get(tx.sender, 0) + 1
 
-        if tx.nonce < expected:
+        if tx.nonce < expected_nonce:
             raise InvalidNonceError()
 
-        if tx.nonce > expected:
+        if tx.nonce > expected_nonce + MAX_FUTURE_NONCE_GAP:
+            raise InvalidNonceError()
+
+        if tx.nonce > expected_nonce:
             self.future_transactions.setdefault(tx.sender, {})[tx.nonce] = tx
             raise FutureNonceError()
 

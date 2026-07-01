@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -11,9 +12,13 @@ class SnapshotStore:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
 
-    def save_snapshot(self, ledger: Ledger, tx_index: int):
+    def save_snapshot(
+        self, ledger: Ledger, snapshot_id: int, last_hash: str, journal_position: int
+    ):
         snapshot = {
-            "tx_index": tx_index,
+            "snapshot_id": snapshot_id,
+            "journal_position": journal_position,
+            "last_hash": last_hash,
             "balances": copy.deepcopy(ledger.balances),
             "nonces": copy.deepcopy(ledger.nonces),
             "processed_ids": list(ledger.processed_ids),
@@ -23,10 +28,19 @@ class SnapshotStore:
             },
         }
 
-        filename = self.directory / f"snapshot_{snapshot['tx_index']}.json"
+        snapshot_json = json.dumps(snapshot, sort_keys=True, indent=2)
+
+        checksum = hashlib.sha256(snapshot_json.encode()).hexdigest()
+
+        filename = self.directory / f"snapshot_{snapshot['snapshot_id']}.json"
 
         with open(filename, "w") as f:
-            json.dump(snapshot, f, indent=2)
+            f.write(snapshot_json)
+
+        checksum_path = self.directory / f"snapshot_{snapshot['snapshot_id']}.sha256"
+
+        with open(checksum_path, "w") as f:
+            f.write(checksum)
 
     def load_latest_snapshot(self):
         snapshots = list(self.directory.glob("snapshot_*.json"))

@@ -49,12 +49,12 @@ class TransactionProcessor:
 
         # restore ledger state on startup
 
-        snapshot_index = self.replay_engine.restore_from_snapshot()
+        journal_position = self.replay_engine.restore_from_snapshot()
 
         ReplayService.log(
             "SNAPSHOT_RESTORED",
             {
-                "snapshot_index": snapshot_index,
+                "journal_position": journal_position,
             },
         )
 
@@ -62,11 +62,11 @@ class TransactionProcessor:
             None,
             "SNAPSHOT_RESTORED",
             {
-                "snapshot_index": snapshot_index,
+                "journal_position": journal_position,
             },
         )
 
-        transactions = self.journal.load_from(snapshot_index)
+        transactions = self.journal.load_from(journal_position)
 
         ReplayService.log(
             "JOURNAL_REPLAY_STARTED",
@@ -180,11 +180,15 @@ class TransactionProcessor:
                 return False, f"System error: {str(e)}", True
 
             self.journal.append(tx)
-            self.tx_count += 1
-            self.tx_since_snapshot += 1
 
-            if self.tx_since_snapshot >= self.snapshot_interval:
-                self.snapshot_store.save_snapshot(self.ledger, self.tx_count)
+            journal_position = self.journal.get_position()
+            snapshot_id = int(time.time_ns())
+
+            if journal_position % self.snapshot_interval == 0:
+
+                self.snapshot_store.save_snapshot(
+                    self.ledger, snapshot_id, self.journal.last_hash, journal_position
+                )
                 self.tx_since_snapshot = 0
 
             promoted = self.ledger.get_processable_buffered(tx.sender)
