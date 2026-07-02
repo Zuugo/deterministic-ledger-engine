@@ -29,7 +29,7 @@ class ReplayEngine:
             for sender, txs in snapshot.get("future_transactions", {}).items()
         }
 
-        return snapshot["journal_position"]
+        return snapshot
 
     def reconcile_transaction_statuses(self):
         for tx_id in self.ledger.processed_ids:
