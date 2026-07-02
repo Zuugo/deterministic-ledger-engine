@@ -43,91 +43,9 @@ class TransactionProcessor:
 
     def start(self):
 
-        from ledger.models import LedgerEvent
-        from ledger.services.event_service import EventService
-        from ledger.services.replay_service import ReplayService
+        from ledger.services.startup_service import StartupService
 
-        # restore ledger state on startup
-
-        journal_position = self.replay_engine.restore_from_snapshot()
-
-        ReplayService.log(
-            "SNAPSHOT_RESTORED",
-            {
-                "journal_position": journal_position,
-            },
-        )
-
-        EventService.emit(
-            None,
-            "SNAPSHOT_RESTORED",
-            {
-                "journal_position": journal_position,
-            },
-        )
-
-        transactions = self.journal.load_from(journal_position)
-
-        ReplayService.log(
-            "JOURNAL_REPLAY_STARTED",
-            {
-                "count": len(transactions),
-            },
-        )
-
-        EventService.emit(
-            None,
-            "JOURNAL_REPLAY_STARTED",
-            {
-                "count": len(transactions),
-            },
-        )
-
-        for tx in transactions:
-            print(f"[REPLAY TX] {tx.tx_id}")
-
-            ReplayService.log(
-                "REPLAY_TX",
-                {
-                    "tx_id": tx.tx_id,
-                },
-            )
-
-            EventService.emit(
-                tx.tx_id,
-                "TX_REPLAY",
-                {
-                    "tx_id": tx.tx_id,
-                },
-            )
-
-            if tx.tx_id in self.ledger.processed_ids:
-                continue
-
-            if not self.ledger.apply_transaction(tx):
-                raise RuntimeError("Ledger replay failed - journal corrupted")
-
-        ReplayService.log(
-            "REPLAY_COMPLETED",
-            {
-                "balances": self.ledger.balances,
-                "nonces": self.ledger.nonces,
-            },
-        )
-
-        EventService.emit(
-            None,
-            "REPLAY_COMPLETED",
-            {
-                "balances": self.ledger.balances,
-                "nonces": self.ledger.nonces,
-            },
-        )
-
-        for sender, nonce in self.ledger.nonces.items():
-
-            if nonce < 0:
-                raise RuntimeError(f"Corrupted nonce state for {sender}")
+        StartupService(self).start()
 
     def process(self, tx: Transaction):
         from ledger.models import LedgerEvent
