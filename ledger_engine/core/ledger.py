@@ -8,6 +8,8 @@ from ledger_engine.models.transaction import Transaction
 
 
 class Ledger:
+    SYSTEM_ACCOUNT = "SYSTEM"
+    MAX_FUTURE_NONCE_GAP = 10
 
     def __init__(self):
 
@@ -17,70 +19,75 @@ class Ledger:
         self.future_transactions: dict[str, dict[int, Transaction]] = {}
 
     def apply_transaction(self, tx: Transaction) -> bool:
-        MAX_FUTURE_NONCE_GAP = 10
 
-        if tx.tx_id in self.processed_ids:
-            raise DuplicateTransactionError()
-
-        expected_nonce = self.nonces.get(tx.sender, 0) + 1
-
-        if tx.nonce < expected_nonce:
-            raise InvalidNonceError()
-
-        if tx.nonce > expected_nonce + MAX_FUTURE_NONCE_GAP:
-            raise InvalidNonceError()
-
-        if tx.nonce > expected_nonce:
-            self.future_transactions.setdefault(tx.sender, {})[tx.nonce] = tx
-            raise FutureNonceError()
-
-        # nonce == expected
-
-        if tx.sender == "SYSTEM":
-            if not tx.receiver:
-                return False
-        else:
-            sender_balance = self.balances.get(tx.sender, 0)
-
-            if sender_balance < tx.amount:
-                raise InsufficientBalanceError()
-
-            self.balances[tx.sender] = sender_balance - tx.amount
-
-        if tx.receiver:
-            self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
-
-        self.nonces[tx.sender] = tx.nonce
-
-        self.processed_ids.add(tx.tx_id)
+        self._validate_duplicate(tx)
+        self._validate_nonce(tx)
+        self._apply_transfer(tx)
+        self._finalize_transaction(tx)
 
         return True
-
-    """
-    def process_buffer(self, sender: str):
-        expected = self.nonces.get(sender, 0) + 1
-        sender_buffer = self.future_transactions.get(sender, {})
-
-        while expected in sender_buffer:
-            tx = sender_buffer.pop(expected)
-            self.apply_transaction(tx)
-
-            expected = self.nonces.get(sender, 0) + 1
-
-        if not sender_buffer: 
-            self.future_transactions.pop(sender, None)
-
-    """
 
     def get_balances(self):
         return dict(self.balances)
 
-    def get_processable_buffered(self, sender: str):
-        expected = self.nonces.get(sender, 0) + 1
+    def pop_processable_buffered(self, sender: str):
+        expected_nonce = self.expected_nonce(sender)
 
         sender_buffer = self.future_transactions.get(sender, {})
 
-        if expected in sender_buffer:
-            return sender_buffer.pop(expected)
+        if expected_nonce not in sender_buffer:
+            return None
 
-        return None
+        tx = sender_buffer.pop(expected_nonce)
+
+        if not sender_buffer:
+            self.future_transactions.pop(sender, None)
+
+        return tx
+
+    def expected_nonce(self, sender: str) -> int:
+        return self.nonces.get(sender, 0) + 1
+
+    def _validate_duplicate(self, tx: Transaction):
+        if tx.tx_id in self.processed_ids:
+            raise DuplicateTransactionError()
+
+    def _validate_nonce(self, tx: Transaction):
+        expected_nonce = self.expected_nonce(tx.sender)
+
+        if tx.nonce < expected_nonce:
+            raise InvalidNonceError()
+
+        if tx.nonce > expected_nonce + self.MAX_FUTURE_NONCE_GAP:
+            raise InvalidNonceError()
+
+        if tx.nonce > expected_nonce:
+            self._buffer_transaction(tx)
+            raise FutureNonceError()
+
+    def _buffer_transaction(self, tx: Transaction):
+        self.future_transactions.setdefault(tx.sender, {})[tx.nonce] = tx
+
+    def _apply_transfer(self, tx: Transaction):
+        if self._is_system_transaction(tx):
+            if not tx.receiver:
+                raise ValueError("SYSTEM transaction requires a receiver")
+
+            return
+
+        sender_balance = self.balances.get(tx.sender, 0)
+
+        if sender_balance < tx.amount:
+            raise InsufficientBalanceError()
+
+        self.balances[tx.sender] = sender_balance - tx.amount
+
+        if tx.receiver:
+            self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
+
+    def _finalize_transaction(self, tx: Transaction):
+        self.nonces[tx.sender] = tx.nonce
+        self.processed_ids.add(tx.tx_id)
+
+    def _is_system_transaction(self, tx: Transaction) -> bool:
+        return tx.sender == self.SYSTEM_ACCOUNT

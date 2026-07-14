@@ -19,4 +19,9 @@ class FutureNonceError(LedgerError):
 
 class InvalidNonceError(LedgerError):
     def __str__(self):
-        return "Nonce too low"
+        return "Invalid Nonce"
+
+
+class JournalCorruptionError(LedgerError):
+    def __str__(self):
+        return "Journal record has been tampered with or corrupted."

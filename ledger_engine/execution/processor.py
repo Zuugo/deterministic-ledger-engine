@@ -1,4 +1,3 @@
-import os
 import threading
 import time
 
@@ -10,8 +9,8 @@ from ledger_engine.exceptions.exceptions import (
     FutureNonceError,
     InsufficientBalanceError,
     InvalidNonceError,
-    LedgerError,
 )
+from ledger_engine.models.process_result import ProcessResult
 from ledger_engine.models.transaction import Transaction
 from ledger_engine.replay.replay_engine import ReplayEngine
 from ledger_engine.storage.snapshot_store import SnapshotStore
@@ -38,8 +37,6 @@ class TransactionProcessor:
         self.snapshot_interval = snapshot_interval
 
         self.lock = threading.Lock()
-        self.tx_count = 0
-        self.tx_since_snapshot = 0
 
     def start(self):
 
@@ -47,98 +44,86 @@ class TransactionProcessor:
 
         StartupService(self).start()
 
-    def process(self, tx: Transaction):
-        from ledger.models import LedgerEvent
-        from ledger.services.event_service import EventService
+    def process(self, tx: Transaction) -> ProcessResult:
 
-        """
-        if tx.tx_id == "TEST_RECOVERY2":
-            print(f"[TEST] Simulating recovery")
-            time.sleep(15)
-
-        if tx.tx_id == "TEST_CRASH":
-            print(f"[TEST] Simulating crash")
-            os._exit(1)
-
-        
-        if tx.tx_id == "TEST_DLQ3":
-            print(f"[TEST] Simulating permanent failure")
-            return False, "Permanent failure for DLQ testing", False
-        """
         if not self.validate.validate(tx):
-            return False, "Invalid Transaction", False
+            return ProcessResult(success=False, reason="Invalid Transaction")
 
         # process a new transaction
 
         with self.lock:
-            try:
-                self.ledger.apply_transaction(tx)
 
-            except FutureNonceError:
-                EventService.emit(
-                    tx.tx_id,
-                    "TX_BUFFERED",
-                    {
-                        "sender": tx.sender,
-                        "nonces": tx.nonce,
-                    },
-                )
-                return False, "Buffered future transaction", False
+            result = self._apply_transaction(tx)
 
-            except DuplicateTransactionError:
-                return False, "Duplicate transaction", False
-
-            except InvalidNonceError:
-                return False, "Invalid nonce", False
-
-            except InsufficientBalanceError:
-                return False, "Insufficient balance", False
-
-            except Exception as e:
-                return False, f"System error: {str(e)}", True
+            if result is not None:
+                return result
 
             self.journal.append(tx)
 
             journal_position = self.journal.get_position()
-            snapshot_id = int(time.time_ns())
+
+            result = ProcessResult(success=True, journal_position=journal_position)
 
             if journal_position % self.snapshot_interval == 0:
+
+                snapshot_id = int(time.time_ns())
 
                 self.snapshot_store.save_snapshot(
                     self.ledger, snapshot_id, self.journal.last_hash, journal_position
                 )
                 self.tx_since_snapshot = 0
 
-            promoted = self.ledger.get_processable_buffered(tx.sender)
+                result.snapshot_created = True
+                result.snapshot_id = snapshot_id
 
-            if promoted:
+            promoted = self.ledger.pop_processable_buffered(tx.sender)
 
-                from ledger.models import TransactionQueue, TransactionStatus
-                from ledger.services.lifecycle_service import (
-                    TransactionLifecycleService,
-                )
+            while promoted:
 
-                print(f"[PROMOTE BUFFER] {promoted.tx_id}")
+                result.promoted_transactions.append(promoted)
+                promoted = self.ledger.pop_processable_buffered(tx.sender)
 
-                EventService.emit(
-                    promoted.tx_id,
-                    "BUFFER_PROMOTED",
-                    {
-                        "sender": promoted.sender,
-                        "nonces": promoted.nonce,
-                    },
-                )
+            return result
 
-                TransactionQueue.objects.filter(
-                    tx_id=promoted.tx_id,
-                ).update(
-                    status="PENDING",
-                    next_attempt=now(),
-                )
+    def _apply_transaction(self, tx: Transaction) -> ProcessResult | None:
 
-                TransactionLifecycleService.transition(
-                    tx_id=promoted.tx_id,
-                    status="PENDING",
-                )
+        try:
+            self.ledger.apply_transaction(tx)
 
-            return True, None, False
+            return None
+
+        except FutureNonceError:
+
+            return ProcessResult(
+                success=False,
+                reason="Buffered future transaction",
+            )
+
+        except DuplicateTransactionError:
+
+            return ProcessResult(
+                success=False,
+                reason="Duplicate transaction",
+            )
+
+        except InvalidNonceError:
+
+            return ProcessResult(
+                success=False,
+                reason="Invalid nonce",
+            )
+
+        except InsufficientBalanceError:
+
+            return ProcessResult(
+                success=False,
+                reason="Insufficient balance",
+            )
+
+        except Exception as e:
+
+            return ProcessResult(
+                success=False,
+                reason=f"System error: {e}",
+                retryable=True,
+            )

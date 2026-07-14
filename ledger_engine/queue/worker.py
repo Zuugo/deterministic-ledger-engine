@@ -38,6 +38,7 @@ class TransactionWorker:
         print("[WORKER] started.....")
 
         while self.running:
+
             current_time = now()
 
             with transaction.atomic():

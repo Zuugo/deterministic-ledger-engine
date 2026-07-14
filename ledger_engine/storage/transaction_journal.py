@@ -1,8 +1,8 @@
-import hashlib
 import json
 from os import fsync
 from pathlib import Path
 
+from ledger_engine.models.journal_record import JournalRecord
 from ledger_engine.models.transaction import Transaction
 
 
@@ -14,149 +14,92 @@ class TransactionJournal:
 
         self.last_hash = self._load_last_hash()
 
-    def append(self, tx: Transaction):
+    def append(self, tx: Transaction) -> None:
+        record = JournalRecord.from_transaction(
+            tx=tx,
+            previous_hash=self.last_hash,
+        )
 
-        record = {
-            "tx_id": tx.tx_id,
-            "sender": tx.sender,
-            "receiver": tx.receiver,
-            "amount": tx.amount,
-            "nonce": tx.nonce,
-            "timestamp": tx.timestamp.isoformat(),
-        }
+        record.compute_hash()
+        record.compute_checksum()
 
-        record["previous_hash"] = self.last_hash
-
-        current_hash = hashlib.sha256(
-            json.dumps(record, sort_keys=True).encode()
-        ).hexdigest()
-
-        record["hash"] = current_hash
-
-        self.last_hash = current_hash
-
-        checksum = hashlib.sha256(
-            json.dumps(record, sort_keys=True).encode()
-        ).hexdigest()
-
-        record["checksum"] = checksum
+        self.last_hash = record.hash
 
         with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
+            f.write(json.dumps(record.to_dict()) + "\n")
             f.flush()
             fsync(f.fileno())
 
-    def load_from(self, start_index: int):
-        if not self.path.exists():
-            return []
+    def load_from(self, start_index: int) -> list[Transaction]:
 
         transactions = []
 
-        with open(self.path, "r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i < start_index:
-                    continue
+        for index, record in enumerate(self._iterate_records()):
 
-                data = json.loads(line.strip())
+            if index < start_index:
+                continue
 
-                self._verify_record(data)
-
-                data.pop("previous_hash")
-                data.pop("hash")
-                data.pop("checksum")
-
-                transactions.append(Transaction(**data))
+            transactions.append(record.to_transaction())
 
         return transactions
 
-    def load_after_hash(self, target_hash: str):
-
-        if not self.path.exists():
-            return []
+    def load_after_hash(self, target_hash: str) -> list[Transaction]:
 
         transactions = []
         found = False
 
-        with open(self.path, "r", encoding="utf-8") as f:
+        for record in self._iterate_records():
 
-            for line in f:
+            if found:
+                transactions.append(record.to_transaction())
 
-                data = json.loads(line.strip())
-
-                stored_hash = data["hash"]
-
-                if found:
-
-                    self._verify_record(data)
-
-                    data.pop("previous_hash")
-                    data.pop("hash")
-                    data.pop("checksum")
-
-                    transactions.append(Transaction(**data))
-
-                if stored_hash == target_hash:
-                    found = True
+            if record.hash == target_hash:
+                found = True
 
         return transactions
 
-    def _load_last_hash(self):
+    @property
+    def entry_count(self) -> int:
 
-        if not self.path.exists():
-            return "GENESIS"
-
-        last_line = None
-
-        with open(self.path, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    last_line = line
-
-        if not last_line:
-            return "GENESIS"
-
-        data = json.loads(last_line)
-
-        return data["hash"]
-
-    def get_position(self):
         if not self.path.exists():
             return 0
 
-        with open(self.path) as f:
+        with open(self.path, "r", encoding="utf-8") as f:
             return sum(1 for _ in f)
 
-    def _verify_record(self, data):
+    def _iterate_records(self):
 
-        stored_checksum = data["checksum"]
+        if not self.path.exists():
+            return
 
-        checksum_record = dict(data)
-        checksum_record.pop("checksum")
+        with open(self.path, "r", encoding="utf-8") as f:
 
-        calculated_checksum = hashlib.sha256(
-            json.dumps(checksum_record, sort_keys=True).encode()
-        ).hexdigest()
+            for line in f:
 
-        if stored_checksum != calculated_checksum:
-            raise Exception(
-                f"Journal corruption detected at transaction {data['tx_id']}"
-            )
+                if not line.strip():
+                    continue
 
-        stored_hash = data["hash"]
+                record = JournalRecord.from_dict(json.loads(line))
 
-        record_for_hash = {
-            "tx_id": data["tx_id"],
-            "sender": data["sender"],
-            "receiver": data["receiver"],
-            "amount": data["amount"],
-            "nonce": data["nonce"],
-            "timestamp": data["timestamp"],
-            "previous_hash": data["previous_hash"],
-        }
+                record.verify()
 
-        calculated_hash = hashlib.sha256(
-            json.dumps(record_for_hash, sort_keys=True).encode()
-        ).hexdigest()
+                yield record
 
-        if stored_hash != calculated_hash:
-            raise Exception(f"Hash mismatch at transaction {data['tx_id']}")
+    def _load_last_hash(self) -> str:
+
+        if not self.path.exists():
+            return "GENESIS"
+
+        last_record = None
+
+        with open(self.path, "r", encoding="utf-8") as f:
+
+            for line in f:
+
+                if line.strip():
+                    last_record = JournalRecord.from_dict(json.loads(line))
+
+        if last_record is None:
+            return "GENESIS"
+
+        return last_record.hash
