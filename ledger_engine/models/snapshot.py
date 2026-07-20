@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 
 from ledger_engine.models.transaction import Transaction
@@ -5,7 +6,6 @@ from ledger_engine.models.transaction import Transaction
 
 @dataclass(slots=True)
 class Snapshot:
-
     snapshot_id: int
 
     journal_position: int
@@ -20,8 +20,8 @@ class Snapshot:
 
     future_transactions: dict[str, dict[int, Transaction]]
 
-    def restore(self, ledger):
+    def restore(self, ledger) -> None:
         ledger.balances = self.balances.copy()
         ledger.nonces = self.nonces.copy()
         ledger.processed_ids = set(self.processed_ids)
-        ledger.future_transactions = self.future_transactions.copy()
+        ledger.future_transactions = copy.deepcopy(self.future_transactions)

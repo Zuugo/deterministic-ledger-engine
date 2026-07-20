@@ -38,12 +38,6 @@ class TransactionProcessor:
 
         self.lock = threading.Lock()
 
-    def start(self):
-
-        from ledger.services.startup_service import StartupService
-
-        StartupService(self).start()
-
     def process(self, tx: Transaction) -> ProcessResult:
 
         if not self.validate.validate(tx):

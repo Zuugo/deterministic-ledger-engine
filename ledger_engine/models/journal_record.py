@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 
 from ledger_engine.exceptions.exceptions import JournalCorruptionError
 from ledger_engine.models.transaction import Transaction
@@ -24,13 +25,20 @@ class JournalRecord:
         tx: Transaction,
         previous_hash: str,
     ) -> "JournalRecord":
+
+        timestamp = (
+            tx.timestamp.isoformat()
+            if isinstance(tx.timestamp, datetime)
+            else str(tx.timestamp)
+        )
+
         return cls(
             tx_id=tx.tx_id,
             sender=tx.sender,
             receiver=tx.receiver,
             amount=tx.amount,
             nonce=tx.nonce,
-            timestamp=tx.timestamp.isoformat(),
+            timestamp=timestamp,
             previous_hash=previous_hash,
         )
 
@@ -39,7 +47,7 @@ class JournalRecord:
         return cls(
             tx_id=data["tx_id"],
             sender=data["sender"],
-            receiver=data["receiver"],
+            receiver=data.get("receiver"),
             amount=data["amount"],
             nonce=data["nonce"],
             timestamp=data["timestamp"],
@@ -68,11 +76,11 @@ class JournalRecord:
             receiver=self.receiver,
             amount=self.amount,
             nonce=self.nonce,
-            timestamp=self.timestamp,
+            timestamp=datetime.fromisoformat(self.timestamp),
         )
 
     def compute_hash(self) -> str:
-        record = {
+        payload = {
             "tx_id": self.tx_id,
             "sender": self.sender,
             "receiver": self.receiver,
@@ -83,7 +91,7 @@ class JournalRecord:
         }
 
         self.hash = hashlib.sha256(
-            json.dumps(record, sort_keys=True).encode()
+            json.dumps(payload, sort_keys=True).encode()
         ).hexdigest()
 
         return self.hash
@@ -92,11 +100,19 @@ class JournalRecord:
         if self.hash is None:
             raise ValueError("Hash must be computed before checksum.")
 
-        record = self.to_dict()
-        record.pop("checksum")
+        payload = {
+            "tx_id": self.tx_id,
+            "sender": self.sender,
+            "receiver": self.receiver,
+            "amount": self.amount,
+            "nonce": self.nonce,
+            "timestamp": self.timestamp,
+            "previous_hash": self.previous_hash,
+            "hash": self.hash,
+        }
 
         self.checksum = hashlib.sha256(
-            json.dumps(record, sort_keys=True).encode()
+            json.dumps(payload, sort_keys=True).encode()
         ).hexdigest()
 
         return self.checksum

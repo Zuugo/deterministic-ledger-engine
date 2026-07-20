@@ -7,8 +7,7 @@ from ledger_engine.models.transaction import Transaction
 
 
 class TransactionJournal:
-
-    def __init__(self, path: str):
+    def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -25,17 +24,15 @@ class TransactionJournal:
 
         self.last_hash = record.hash
 
-        with open(self.path, "a", encoding="utf-8") as f:
+        with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record.to_dict()) + "\n")
             f.flush()
             fsync(f.fileno())
 
     def load_from(self, start_index: int) -> list[Transaction]:
-
         transactions = []
 
         for index, record in enumerate(self._iterate_records()):
-
             if index < start_index:
                 continue
 
@@ -44,12 +41,10 @@ class TransactionJournal:
         return transactions
 
     def load_after_hash(self, target_hash: str) -> list[Transaction]:
-
         transactions = []
         found = False
 
         for record in self._iterate_records():
-
             if found:
                 transactions.append(record.to_transaction())
 
@@ -60,46 +55,51 @@ class TransactionJournal:
 
     @property
     def entry_count(self) -> int:
-
         if not self.path.exists():
             return 0
 
-        with open(self.path, "r", encoding="utf-8") as f:
+        with self.path.open("r", encoding="utf-8") as f:
             return sum(1 for _ in f)
 
-    def _iterate_records(self):
+    # Backwards compatibility
+    def get_position(self) -> int:
+        return self.entry_count
 
+    def _iterate_records(self):
         if not self.path.exists():
             return
 
-        with open(self.path, "r", encoding="utf-8") as f:
-
+        with self.path.open("r", encoding="utf-8") as f:
             for line in f:
+                line = line.strip()
 
-                if not line.strip():
+                if not line:
                     continue
 
                 record = JournalRecord.from_dict(json.loads(line))
-
                 record.verify()
 
                 yield record
 
     def _load_last_hash(self) -> str:
-
         if not self.path.exists():
             return "GENESIS"
 
         last_record = None
 
-        with open(self.path, "r", encoding="utf-8") as f:
-
+        with self.path.open("r", encoding="utf-8") as f:
             for line in f:
+                line = line.strip()
 
-                if line.strip():
-                    last_record = JournalRecord.from_dict(json.loads(line))
+                if not line:
+                    continue
+
+                last_record = JournalRecord.from_dict(json.loads(line))
 
         if last_record is None:
             return "GENESIS"
+
+        # Never trust persisted data without verification
+        last_record.verify()
 
         return last_record.hash

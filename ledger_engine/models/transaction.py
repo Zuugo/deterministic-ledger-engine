@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 
@@ -9,4 +10,4 @@ class Transaction:
     receiver: Optional[str]
     amount: int
     nonce: int
-    timestamp: float
+    timestamp: datetime

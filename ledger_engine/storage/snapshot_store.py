@@ -1,5 +1,3 @@
-import copy
-import hashlib
 import json
 from pathlib import Path
 
@@ -37,7 +35,6 @@ class SnapshotStore:
         checksum = SnapshotChecksum.calculate(snapshot_json)
 
         snapshot_file = self.directory / f"snapshot_{snapshot_id}.json"
-
         checksum_file = self.directory / f"snapshot_{snapshot_id}.sha256"
 
         snapshot_file.write_text(snapshot_json)
@@ -55,5 +52,17 @@ class SnapshotStore:
 
         latest = snapshots[-1]
 
-        with open(latest) as f:
-            return json.load(f)
+        snapshot_json = latest.read_text()
+
+        checksum_file = latest.with_suffix(".sha256")
+
+        expected_checksum = checksum_file.read_text()
+
+        SnapshotChecksum.verify(
+            snapshot_json,
+            expected_checksum,
+        )
+
+        snapshot_data = json.loads(snapshot_json)
+
+        return SnapshotSerializer.deserialize(snapshot_data)
